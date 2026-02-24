@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 #  AmneziaWG + WGDashboard — Auto Installer for Ubuntu 24.04
-#  Usage: bash <(curl -fsSL https://raw.githubusercontent.com/YOUR/REPO/main/install.sh)
+#  Usage: bash <(curl -fsSL https://raw.githubusercontent.com/YOUfffR/REPO/main/install.sh)
 # ============================================================
 
 set -e
