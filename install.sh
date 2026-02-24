@@ -111,7 +111,20 @@ install_amneziawg() {
 
   add-apt-repository -y ppa:amnezia/ppa
   apt-get update -y -qq
-  apt-get install -y amneziawg amneziawg-tools
+  # Ставим только модуль ядра из PPA
+  apt-get install -y amneziawg
+
+  # Собираем свежие amneziawg-tools из исходников (поддержка AWG 2.0)
+  info "Сборка amneziawg-tools из исходников (поддержка AWG 2.0)..."
+  apt-get install -y -qq gcc make libmnl-dev pkg-config
+  rm -rf /tmp/amneziawg-tools
+  git clone -q https://github.com/amnezia-vpn/amneziawg-tools.git /tmp/amneziawg-tools
+  make -C /tmp/amneziawg-tools/src -j$(nproc)
+  cp /tmp/amneziawg-tools/src/wg /usr/bin/awg
+  cp /tmp/amneziawg-tools/src/wg-quick /usr/bin/awg-quick
+  chmod +x /usr/bin/awg /usr/bin/awg-quick
+  rm -rf /tmp/amneziawg-tools
+  ok "amneziawg-tools собран: $(awg --version)"
 
   modprobe amneziawg
 
@@ -207,7 +220,7 @@ setup_firewall() {
 }
 
 create_awg_config() {
-  info "Создание AWG 2.0 конфигурации..."
+  info "Создание AWG конфигурации..."
   AWG_CONF="/etc/amnezia/amneziawg/${AWG_IF}.conf"
 
   if [[ -f "$AWG_CONF" ]]; then
@@ -218,50 +231,36 @@ create_awg_config() {
   PRIVATE_KEY=$(awg genkey)
   PUBLIC_KEY=$(echo "$PRIVATE_KEY" | awg pubkey)
 
-  # ── Jc / Jmin / Jmax ──────────────────────────────────────
-  JC=$((RANDOM % 8 + 3))          # 3-10
-  JMIN=$((RANDOM % 50 + 50))      # 50-99 (>= 64 рекомендуется)
-  JMAX=$((JMIN + RANDOM % 400 + 200))  # Jmin+200 .. Jmin+599 (≤ 1280)
+  # Jc / Jmin / Jmax
+  JC=$((RANDOM % 8 + 3))
+  JMIN=$((RANDOM % 50 + 50))
+  JMAX=$((JMIN + RANDOM % 400 + 200))
   [[ $JMAX -gt 1280 ]] && JMAX=1280
 
-  # ── S1-S4 ─────────────────────────────────────────────────
-  S1=$((RANDOM % 50 + 15))        # 15-64
+  # S1 / S2
+  S1=$((RANDOM % 50 + 15))
   S2=$((RANDOM % 50 + 15))
   while [[ $((S1 + 56)) -eq $S2 ]]; do S2=$((S2 + 1)); done
-  S3=$((RANDOM % 32))             # 0-31 (≤ 32)
-  S4=$((RANDOM % 16))             # 0-15 (≤ 32, data пакеты)
 
-  # ── H1-H4 диапазоны (AWG 2.0) — не перекрываются ─────────
-  # Делим пространство на 4 не пересекающихся блока
-  BASE=$((RANDOM % 50000 + 100000))   # стартовый диапазон ~100k-150k
-  STEP=$((RANDOM % 30000 + 80000))    # шаг между блоками ~80k-110k
-  RANGE=$((RANDOM % 20000 + 30000))   # ширина каждого блока ~30k-50k
+  # ── S3 / S4 ───────────────────────────────────────────────
+  S3=$((RANDOM % 32))
+  S4=$((RANDOM % 16))
 
-  H1_MIN=$BASE
-  H1_MAX=$((H1_MIN + RANGE))
-  H2_MIN=$((H1_MAX + STEP))
-  H2_MAX=$((H2_MIN + RANGE))
-  H3_MIN=$((H2_MAX + STEP))
-  H3_MAX=$((H3_MIN + RANGE))
-  H4_MIN=$((H3_MAX + STEP))
-  H4_MAX=$((H4_MIN + RANGE))
+  # ── H1-H4 диапазоны AWG 2.0 — не перекрываются ───────────
+  BASE=$((RANDOM % 50000 + 100000))
+  STEP=$((RANDOM % 30000 + 80000))
+  RANGE=$((RANDOM % 20000 + 30000))
+  H1_MIN=$BASE;           H1_MAX=$((H1_MIN + RANGE))
+  H2_MIN=$((H1_MAX + STEP)); H2_MAX=$((H2_MIN + RANGE))
+  H3_MIN=$((H2_MAX + STEP)); H3_MAX=$((H3_MIN + RANGE))
+  H4_MIN=$((H3_MAX + STEP)); H4_MAX=$((H4_MIN + RANGE))
 
-  # ── I1 — QUIC-имитация (AWG 2.0) ─────────────────────────
-  # Формат: <b 0xHEX><r N><c><t>
-  # 0xc7000000010 — QUIC Initial packet prefix (реальный пример)
-  QUIC_PREFIXES=(
-    "c7000000010"
-    "c0000000011"
-    "c000000001"
-    "c700000001"
-  )
-  QUIC=${QUIC_PREFIXES[$((RANDOM % ${#QUIC_PREFIXES[@]}))]}
-  # Рандомный размер случайных байт в I1
-  R_SIZE=$((RANDOM % 30 + 20))
-  I1="<b 0x${QUIC}><r ${R_SIZE}><c><t>"
-
-  # I2 — доп. энтропия
+  # ── I1 QUIC-имитация, I2 энтропия ────────────────────────
+  QUIC_LIST=("c7000000010" "c0000000011" "c000000001" "c700000001")
+  QUIC=${QUIC_LIST[$((RANDOM % 4))]}
+  R1=$((RANDOM % 30 + 20))
   R2=$((RANDOM % 20 + 10))
+  I1="<b 0x${QUIC}><r ${R1}><c><t>"
   I2="<r ${R2}><c><t>"
 
   cat > "$AWG_CONF" << EOF
