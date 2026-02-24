@@ -207,7 +207,7 @@ setup_firewall() {
 }
 
 create_awg_config() {
-  info "Создание AWG конфигурации..."
+  info "Создание AWG 2.0 конфигурации..."
   AWG_CONF="/etc/amnezia/amneziawg/${AWG_IF}.conf"
 
   if [[ -f "$AWG_CONF" ]]; then
@@ -218,39 +218,91 @@ create_awg_config() {
   PRIVATE_KEY=$(awg genkey)
   PUBLIC_KEY=$(echo "$PRIVATE_KEY" | awg pubkey)
 
-  # Рандомные параметры обфускации
-  JC=$((RANDOM % 9 + 4))
-  JMIN=$((RANDOM % 30 + 5))
-  JMAX=$((JMIN + RANDOM % 50 + 30))
-  S1=$((RANDOM % 100 + 20))
-  S2=$((RANDOM % 100 + 20))
+  # ── Jc / Jmin / Jmax ──────────────────────────────────────
+  JC=$((RANDOM % 8 + 3))          # 3-10
+  JMIN=$((RANDOM % 50 + 50))      # 50-99 (>= 64 рекомендуется)
+  JMAX=$((JMIN + RANDOM % 400 + 200))  # Jmin+200 .. Jmin+599 (≤ 1280)
+  [[ $JMAX -gt 1280 ]] && JMAX=1280
+
+  # ── S1-S4 ─────────────────────────────────────────────────
+  S1=$((RANDOM % 50 + 15))        # 15-64
+  S2=$((RANDOM % 50 + 15))
   while [[ $((S1 + 56)) -eq $S2 ]]; do S2=$((S2 + 1)); done
-  H1=$((RANDOM * RANDOM + 5))
-  H2=$((RANDOM * RANDOM + 5))
-  H3=$((RANDOM * RANDOM + 5))
-  H4=$((RANDOM * RANDOM + 5))
+  S3=$((RANDOM % 32))             # 0-31 (≤ 32)
+  S4=$((RANDOM % 16))             # 0-15 (≤ 32, data пакеты)
+
+  # ── H1-H4 диапазоны (AWG 2.0) — не перекрываются ─────────
+  # Делим пространство на 4 не пересекающихся блока
+  BASE=$((RANDOM % 50000 + 100000))   # стартовый диапазон ~100k-150k
+  STEP=$((RANDOM % 30000 + 80000))    # шаг между блоками ~80k-110k
+  RANGE=$((RANDOM % 20000 + 30000))   # ширина каждого блока ~30k-50k
+
+  H1_MIN=$BASE
+  H1_MAX=$((H1_MIN + RANGE))
+  H2_MIN=$((H1_MAX + STEP))
+  H2_MAX=$((H2_MIN + RANGE))
+  H3_MIN=$((H2_MAX + STEP))
+  H3_MAX=$((H3_MIN + RANGE))
+  H4_MIN=$((H3_MAX + STEP))
+  H4_MAX=$((H4_MIN + RANGE))
+
+  # ── I1 — QUIC-имитация (AWG 2.0) ─────────────────────────
+  # Формат: <b 0xHEX><r N><c><t>
+  # 0xc7000000010 — QUIC Initial packet prefix (реальный пример)
+  QUIC_PREFIXES=(
+    "c7000000010"
+    "c0000000011"
+    "c000000001"
+    "c700000001"
+  )
+  QUIC=${QUIC_PREFIXES[$((RANDOM % ${#QUIC_PREFIXES[@]}))]}
+  # Рандомный размер случайных байт в I1
+  R_SIZE=$((RANDOM % 30 + 20))
+  I1="<b 0x${QUIC}><r ${R_SIZE}><c><t>"
+
+  # I2 — доп. энтропия
+  R2=$((RANDOM % 20 + 10))
+  I2="<r ${R2}><c><t>"
 
   cat > "$AWG_CONF" << EOF
 [Interface]
 Address = ${AWG_SUBNET}
 ListenPort = ${AWG_PORT}
 PrivateKey = ${PRIVATE_KEY}
+DNS = 1.1.1.1, 8.8.8.8
 Jc = ${JC}
 Jmin = ${JMIN}
 Jmax = ${JMAX}
 S1 = ${S1}
 S2 = ${S2}
-H1 = ${H1}
-H2 = ${H2}
-H3 = ${H3}
-H4 = ${H4}
+S3 = ${S3}
+S4 = ${S4}
+H1 = ${H1_MIN}-${H1_MAX}
+H2 = ${H2_MIN}-${H2_MAX}
+H3 = ${H3_MIN}-${H3_MAX}
+H4 = ${H4_MIN}-${H4_MAX}
+I1 = ${I1}
+I2 = ${I2}
 PostUp = iptables -A FORWARD -i ${AWG_IF} -j ACCEPT; iptables -A FORWARD -o ${AWG_IF} -j ACCEPT; iptables -t nat -A POSTROUTING -o ${NET_IF} -j MASQUERADE;
 PreDown = iptables -D FORWARD -i ${AWG_IF} -j ACCEPT; iptables -D FORWARD -o ${AWG_IF} -j ACCEPT; iptables -t nat -D POSTROUTING -o ${NET_IF} -j MASQUERADE;
 EOF
 
   chmod 600 "$AWG_CONF"
-  ok "Конфиг создан: $AWG_CONF"
+  ok "AWG 2.0 конфиг создан: $AWG_CONF"
+  echo ""
   info "PublicKey сервера: ${BOLD}$PUBLIC_KEY${NC}"
+  echo ""
+  info "AWG 2.0 параметры:"
+  echo "   Jc=${JC}  Jmin=${JMIN}  Jmax=${JMAX}"
+  echo "   S1=${S1}  S2=${S2}  S3=${S3}  S4=${S4}"
+  echo "   H1=${H1_MIN}-${H1_MAX}"
+  echo "   H2=${H2_MIN}-${H2_MAX}"
+  echo "   H3=${H3_MIN}-${H3_MAX}"
+  echo "   H4=${H4_MIN}-${H4_MAX}"
+  echo "   I1=${I1}"
+  echo "   I2=${I2}"
+  echo ""
+  warn "Сохрани эти параметры — они нужны для настройки клиентов!"
 }
 
 do_uninstall() {
