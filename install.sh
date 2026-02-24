@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 #  AmneziaWG + WGDashboard — Auto Installer for Ubuntu 24.04
-#  Usage: bash <(curl -fsSL https://raw.githubusercontent.com/YOUfffR/REPO/main/install.sh)
+#  Usage: bash <(curl -fsSL https://raw.githubusercontent.com/YOUR/REPO/main/install.sh)
 # ============================================================
 
 set -e
@@ -220,7 +220,7 @@ setup_firewall() {
 }
 
 create_awg_config() {
-  info "Создание AWG конфигурации..."
+  info "Создание AWG 2.0 конфигурации..."
   AWG_CONF="/etc/amnezia/amneziawg/${AWG_IF}.conf"
 
   if [[ -f "$AWG_CONF" ]]; then
@@ -231,31 +231,36 @@ create_awg_config() {
   PRIVATE_KEY=$(awg genkey)
   PUBLIC_KEY=$(echo "$PRIVATE_KEY" | awg pubkey)
 
-  # Jc / Jmin / Jmax
+  # Jc: 3-10 | Jmin/Jmax: 64-1024
   JC=$((RANDOM % 8 + 3))
-  JMIN=$((RANDOM % 50 + 50))
-  JMAX=$((JMIN + RANDOM % 400 + 200))
-  [[ $JMAX -gt 1280 ]] && JMAX=1280
+  JMIN=$((RANDOM % 200 + 64))
+  JMAX=$((JMIN + RANDOM % 500 + 200))
+  [[ $JMAX -gt 1024 ]] && JMAX=1024
 
-  # S1 / S2
-  S1=$((RANDOM % 50 + 15))
-  S2=$((RANDOM % 50 + 15))
+  # S1/S2: 0-64, S1+56 ≠ S2
+  # S3: 0-64 (cookie), S4: 0-32 (data)
+  S1=$((RANDOM % 50 + 10))
+  S2=$((RANDOM % 50 + 10))
   while [[ $((S1 + 56)) -eq $S2 ]]; do S2=$((S2 + 1)); done
-
-  # ── S3 / S4 ───────────────────────────────────────────────
+  [[ $S1 -gt 64 ]] && S1=64
+  [[ $S2 -gt 64 ]] && S2=63
   S3=$((RANDOM % 32))
   S4=$((RANDOM % 16))
 
-  # ── H1-H4 диапазоны AWG 2.0 — не перекрываются ───────────
-  BASE=$((RANDOM % 50000 + 100000))
-  STEP=$((RANDOM % 30000 + 80000))
-  RANGE=$((RANDOM % 20000 + 30000))
-  H1_MIN=$BASE;           H1_MAX=$((H1_MIN + RANGE))
-  H2_MIN=$((H1_MAX + STEP)); H2_MAX=$((H2_MIN + RANGE))
-  H3_MIN=$((H2_MAX + STEP)); H3_MAX=$((H3_MIN + RANGE))
-  H4_MIN=$((H3_MAX + STEP)); H4_MAX=$((H4_MIN + RANGE))
+  # H1-H4: диапазоны, не перекрываются, 5-2147483647
+  BASE=$((RANDOM % 500000 + 100000))
+  STEP=$((RANDOM % 200000 + 300000))
+  RANGE=$((RANDOM % 100000 + 50000))
+  H1_MIN=$BASE
+  H1_MAX=$((H1_MIN + RANGE))
+  H2_MIN=$((H1_MAX + STEP))
+  H2_MAX=$((H2_MIN + RANGE))
+  H3_MIN=$((H2_MAX + STEP))
+  H3_MAX=$((H3_MIN + RANGE))
+  H4_MIN=$((H3_MAX + STEP))
+  H4_MAX=$((H4_MIN + RANGE))
 
-  # ── I1 QUIC-имитация, I2 энтропия ────────────────────────
+  # I1: QUIC-имитация | I2: доп. энтропия
   QUIC_LIST=("c7000000010" "c0000000011" "c000000001" "c700000001")
   QUIC=${QUIC_LIST[$((RANDOM % 4))]}
   R1=$((RANDOM % 30 + 20))
