@@ -121,7 +121,7 @@ install_amneziawg() {
   git clone -q https://github.com/amnezia-vpn/amneziawg-tools.git /tmp/amneziawg-tools
   make -C /tmp/amneziawg-tools/src -j$(nproc)
   cp /tmp/amneziawg-tools/src/wg /usr/bin/awg
-  cp /tmp/amneziawg-tools/src/wg-quick /usr/bin/awg-quick
+  cp /tmp/amneziawg-tools/src/wg-quick/linux.bash /usr/bin/awg-quick
   chmod +x /usr/bin/awg /usr/bin/awg-quick
   rm -rf /tmp/amneziawg-tools
   ok "amneziawg-tools собран: $(awg --version)"
